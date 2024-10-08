@@ -51,6 +51,7 @@ class Aircraft:
 			self._is_airborne = False
 			self._is_refueling = True
 			self._refuel_time = 0.0
+			framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
 			
 			self.deinit()
 
@@ -118,6 +119,7 @@ class Params:
 		LINEAR_SPEED = 2.0
 		ANGULAR_SPEED = 2.5
 		FLIGHT_DURATION = 10
+		REFUEL_DURATION = 30
 
 
 #-------------------------------------------------------
@@ -125,28 +127,27 @@ class Params:
 #-------------------------------------------------------
 
 class Vector2:
-	
-	def __init__( self, *args ):
+	def __init__(self, *args):
 		if not args:
 			self.x = self.y = 0.0
-		elif len( args ) == 1:
-			self.x, self.y = args[ 0 ].x, args[ 0 ].y
+		elif len(args) == 1:
+			self.x, self.y = args[0].x, args[0].y
 		else:
 			self.x, self.y = args
-	
-	def __add__( self, other ):
-		return Vector2( self.x + other.x, self.y + other.y )
-	
-	def __mul__( self, coef ):
-		return Vector2( self.x * coef, self.y * coef )
-	
 
+	def __add__(self, other):
+		return Vector2(self.x + other.x, self.y + other.y)
+
+	def __sub__(self, other):
+		return Vector2(self.x - other.x, self.y - other.y)
+
+	def __mul__(self, coef):
+		return Vector2(self.x * coef, self.y * coef)
+	
 	def length(self):
-		# Return length of vector
 		return math.sqrt(self.x ** 2 + self.y ** 2)
 
 	def distance_to(self, other):
-		# Evklidovo rasstoyaniye
 		return (self - other).length()
 	
 	def __repr__(self):
@@ -214,6 +215,7 @@ class Ship:
 	def mouseClicked(self, x, y, isLeftButton):
 		if isLeftButton:
 			self._aircraft_manager.set_goal_for_airborne(Vector2(x, y))
+			framework.placeGoalModel( x, y )
 		else:
 			self._aircraft_manager.take_off_next_aircraft()
 
