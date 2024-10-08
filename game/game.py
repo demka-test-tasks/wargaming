@@ -57,16 +57,31 @@ class Aircraft:
 
 	def _fly_towards_goal(self, dt):
 		if self._goal:
+			# Define the radius at which the aircraft should start circling the goal
+			orbit_radius = 0.5
+
+			# Calculate the direction and distance to the goal
 			direction = Vector2(self._goal.x - self._position.x, self._goal.y - self._position.y)
 			distance = direction.length()
-			if distance > 0:
-				direction = direction * (1.0 / distance)
+
+			if distance > orbit_radius:
+				# If the aircraft is farther than the orbit radius, move directly towards the goal
+				direction = direction * (1.0 / distance)  # Normalize the direction vector
 				move_vector = direction * self._max_speed * dt
 				self._position += move_vector
 				self._angle = math.atan2(direction.y, direction.x)
-				framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
 			else:
-				self._goal = None
+				# Once within the orbit radius, start circling around the goal
+				angle_speed = self._max_angular_speed * dt
+				current_angle = math.atan2(direction.y, direction.x)
+				self._angle = current_angle + angle_speed
+
+				# Calculate the new position along the circular path
+				self._position.x = self._goal.x + orbit_radius * math.cos(self._angle)
+				self._position.y = self._goal.y + orbit_radius * math.sin(self._angle)
+
+			# Update the model's position
+			framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
 
 	def set_goal(self, goal):
 		if self._is_airborne:
