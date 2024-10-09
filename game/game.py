@@ -15,28 +15,40 @@ class Aircraft:
 		self._is_airborne = False
 		self._flight_time = 0.0
 		self._refuel_time = 0.0
+		self._speed = 0.0
 		self._max_speed = Params.Aircraft.LINEAR_SPEED
 		self._max_angular_speed = Params.Aircraft.ANGULAR_SPEED
+		self._acceleration = Params.Aircraft.ACCELERATION
 		self._goal = None
 		self._is_refueling = False
+
 
 	def take_off(self, ship_position):
 		print(u"Taking off")
 		if not self._is_airborne and not self._is_refueling:
 			self._position = Vector2(ship_position.x, ship_position.y)
-			# Start taking off
+			self._angle = math.atan2(math.sin(self._angle), math.cos(self._angle))
 			self._model = framework.createAircraftModel()
 			self._is_airborne = True
 			self._flight_time = 0.0
-			# Save current ship position
+			self._speed = 0.0
 			framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
 
 	def update(self, dt, ship_position):
 		if self._is_airborne:
-			self._flight_time += dt  # flight time
+			self._flight_time += dt
 			if self._flight_time >= Params.Aircraft.FLIGHT_DURATION:
-				self._land(ship_position)
+				self._land(ship_position, dt)
 			else:
+				if self._speed < self._max_speed:
+					self._speed += self._acceleration * dt
+					self._speed = min(self._speed, self._max_speed)
+
+				take_off_vector = Vector2(math.cos(self._angle), math.sin(self._angle))
+				move_vector = take_off_vector * self._speed * dt
+				self._position += move_vector
+
+				framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
 				self._fly_towards_goal(dt)
 
 		if self._is_refueling:
@@ -44,43 +56,51 @@ class Aircraft:
 			if self._refuel_time >= Params.Aircraft.REFUEL_DURATION:
 				self._is_refueling = False
 
-	def _land(self, ship_position):
-		# Move towards the ship position and land when close enough
+	def _land(self, ship_position, dt):
+		print("LANDING IS WORKING")
 		self._goal = ship_position
-		if self._position.distance_to(ship_position) < 1.0:
+
+		distance_to_ship = self._position.distance_to(ship_position)
+
+		if distance_to_ship >= 0.5:
+			direction = Vector2(ship_position.x - self._position.x, ship_position.y - self._position.y)
+			distance = direction.length()
+
+			direction = direction * (1.0 / distance)
+			self._speed = max(0.1, self._speed - self._acceleration * dt)
+			move_vector = direction * self._speed * dt
+			self._position += move_vector
+			self._angle = math.atan2(direction.y, direction.x)
+
+			framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
+		else:
 			self._is_airborne = False
 			self._is_refueling = True
 			self._refuel_time = 0.0
+
 			framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
-			
 			self.deinit()
 
 	def _fly_towards_goal(self, dt):
 		if self._goal:
-			# Define the radius at which the aircraft should start circling the goal
 			orbit_radius = 0.5
 
-			# Calculate the direction and distance to the goal
 			direction = Vector2(self._goal.x - self._position.x, self._goal.y - self._position.y)
 			distance = direction.length()
 
 			if distance > orbit_radius:
-				# If the aircraft is farther than the orbit radius, move directly towards the goal
-				direction = direction * (1.0 / distance)  # Normalize the direction vector
+				direction = direction * (1.0 / distance)
 				move_vector = direction * self._max_speed * dt
 				self._position += move_vector
 				self._angle = math.atan2(direction.y, direction.x)
 			else:
-				# Once within the orbit radius, start circling around the goal
-				angle_speed = self._max_angular_speed * dt
-				current_angle = math.atan2(direction.y, direction.x)
-				self._angle = current_angle + angle_speed
+				if not hasattr(self, '_orbit_angle'):
+					self._orbit_angle = math.atan2(direction.y, direction.x)
 
-				# Calculate the new position along the circular path
-				self._position.x = self._goal.x + orbit_radius * math.cos(self._angle)
-				self._position.y = self._goal.y + orbit_radius * math.sin(self._angle)
+				self._orbit_angle += self._max_angular_speed * dt
+				self._position.x = self._goal.x + orbit_radius * math.cos(self._orbit_angle)
+				self._position.y = self._goal.y + orbit_radius * math.sin(self._orbit_angle)
 
-			# Update the model's position
 			framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
 
 	def set_goal(self, goal):
@@ -135,6 +155,7 @@ class Params:
 		ANGULAR_SPEED = 2.5
 		FLIGHT_DURATION = 10
 		REFUEL_DURATION = 30
+		ACCELERATION = 0.5
 
 
 #-------------------------------------------------------
