@@ -20,7 +20,7 @@ class Params:
         FLIGHT_DURATION = 10
         REFUEL_DURATION = 10
         ACCELERATION = 0.5
-        MIN_SPEED = 0.5  # Minimum speed to prevent stalling
+        MIN_SPEED = 0.3  # Minimum speed to prevent stalling
 
 #-------------------------------------------------------
 #   Vector2 Class
@@ -324,6 +324,7 @@ class AircraftManager:
         self._aircrafts = [Aircraft(ship._position) for _ in range(5)]
         self._next_aircraft_index = 0
         self._ship = ship
+        self._current_goal = None  # Add this to keep track of the current goal
 
     def update(self, dt, ship_position, ship_angle):
         """Update all aircraft."""
@@ -336,10 +337,14 @@ class AircraftManager:
         if not aircraft._is_airborne and not aircraft._is_refueling:
             print("Aircraft taking off from position", self._ship._position)
             aircraft.take_off(self._ship._position, self._ship._angle)  # Pass ship's angle
+            # Assign current goal to the new aircraft if it exists
+            if self._current_goal is not None:
+                aircraft.set_goal(self._current_goal)
             self._next_aircraft_index = (self._next_aircraft_index + 1) % len(self._aircrafts)
 
     def set_goal_for_airborne(self, goal):
         """Set a new goal for all airborne aircraft."""
+        self._current_goal = goal  # Update the current goal
         for aircraft in self._aircrafts:
             if aircraft._is_airborne and not aircraft._is_landing:
                 aircraft.set_goal(goal)
