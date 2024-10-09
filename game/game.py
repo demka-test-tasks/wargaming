@@ -142,25 +142,55 @@ class Aircraft:
             framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
             self.deinit()
 
+    def _normalize_angle(self, angle):
+        while angle > math.pi:
+            angle -= 2 * math.pi
+        while angle < -math.pi:
+            angle += 2 * math.pi
+        return angle
+
+    def _adjust_angle_towards(self, current_angle, target_angle, max_angular_speed, dt):
+        angle_diff = self._normalize_angle(target_angle - current_angle)
+        max_angle_change = max_angular_speed * dt
+        if abs(angle_diff) < max_angle_change:
+            return target_angle
+        else:
+            return current_angle + max_angle_change * (1 if angle_diff > 0 else -1)
+
     def _fly_towards_goal(self, dt):
         if self._goal:
             orbit_radius = 0.5
 
-            direction = Vector2(self._goal.x - self._position.x, self._goal.y - self._position.y)
-            distance = direction.length()
+            to_goal = self._goal - self._position
+            distance = to_goal.length()
 
             if distance > orbit_radius:
-                direction = direction * (1.0 / distance)
+
+                desired_angle = math.atan2(to_goal.y, to_goal.x)
+                self._angle = self._adjust_angle_towards(self._angle, desired_angle, self._max_angular_speed, dt)
+
+
+                direction = Vector2(math.cos(self._angle), math.sin(self._angle))
                 move_vector = direction * self._max_speed * dt
                 self._position += move_vector
-                self._angle = math.atan2(direction.y, direction.x)
-            else:
-                if not hasattr(self, '_orbit_angle'):
-                    self._orbit_angle = math.atan2(direction.y, direction.x)
 
-                self._orbit_angle += self._max_angular_speed * dt
-                self._position.x = self._goal.x + orbit_radius * math.cos(self._orbit_angle)
-                self._position.y = self._goal.y + orbit_radius * math.sin(self._orbit_angle)
+            else:
+                angle_to_aircraft = math.atan2(self._position.y - self._goal.y, self._position.x - self._goal.x)
+
+                orbit_direction = angle_to_aircraft + math.pi / 2  
+
+                self._angle = self._adjust_angle_towards(self._angle, orbit_direction, self._max_angular_speed, dt)
+
+
+                direction = Vector2(math.cos(self._angle), math.sin(self._angle))
+                move_vector = direction * self._max_speed * dt
+                self._position += move_vector
+
+                to_aircraft = self._position - self._goal
+                current_distance = to_aircraft.length()
+                if abs(current_distance - orbit_radius) > 0.01:
+                    to_aircraft = to_aircraft * (orbit_radius / current_distance)
+                    self._position = self._goal + to_aircraft
 
             framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
 
@@ -198,8 +228,8 @@ class AircraftManager:
             self._next_aircraft_index = (self._next_aircraft_index + 1) % len(self._aircrafts)
 
     def set_goal_for_airborne(self, goal):
-        for aircraft in self._aircrafts:
-            aircraft.set_goal(goal)
+          for aircraft in self._aircrafts:
+               aircraft.set_goal(goal)
 
 #-------------------------------------------------------
 #   Ship Class
