@@ -20,6 +20,7 @@ class Params:
         FLIGHT_DURATION = 10
         REFUEL_DURATION = 10
         ACCELERATION = 0.5
+        MIN_SPEED = 0.5  # Minimum speed to prevent stalling
 
 #-------------------------------------------------------
 #   Vector2 Class
@@ -49,6 +50,12 @@ class Vector2:
     def distance_to(self, other):
         return (self - other).length()
 
+    def normalized(self):
+        len = self.length()
+        if len == 0:
+            return Vector2(0, 0)
+        return Vector2(self.x / len, self.y / len)
+
     def __repr__(self):
         return "{0},{1}".format(self.x, self.y)
 
@@ -75,6 +82,8 @@ class Aircraft:
         self._is_entering_orbit = False  # State for entering orbit
         self._is_in_orbit = False        # State when in orbit
         self._is_exiting_orbit = False   # State for exiting orbit
+        self._is_landing = False         # Landing flag
+        self._landing_approach_point = None  # Landing approach point
 
     def take_off(self, ship_position, ship_angle):
         """Initiate the takeoff sequence from the ship."""
@@ -89,7 +98,7 @@ class Aircraft:
             self._speed = 0.0
             framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
 
-    def update(self, dt, ship_position):
+    def update(self, dt, ship_position, ship_angle):
         """Update the aircraft's state."""
         if self._is_airborne:
             if self._is_taking_off:
@@ -109,11 +118,11 @@ class Aircraft:
                 self._flight_time += dt
                 if self._flight_time >= Params.Aircraft.FLIGHT_DURATION:
                     # Flight duration is over, start landing sequence
-                    self._is_exiting_orbit = True
-                    self._goal = ship_position  # Set goal to ship for landing
-                    self._is_entering_orbit = False
-                    self._is_in_orbit = False
-                if self._goal:
+                    if not self._is_landing:
+                        self._initiate_landing(ship_position, ship_angle)
+                if self._is_landing:
+                    self._perform_landing(dt, ship_position, ship_angle)
+                elif self._goal:
                     self._fly_towards_goal(dt)
                 else:
                     # Continue moving forward
@@ -126,15 +135,71 @@ class Aircraft:
             if self._refuel_time >= Params.Aircraft.REFUEL_DURATION:
                 self._is_refueling = False
 
-    def _land(self, ship_position, dt):
-        """Handle the landing sequence back to the ship."""
-        print("Landing")
-        self._goal = ship_position
+    def _initiate_landing(self, ship_position, ship_angle):
+        """Initiate the landing sequence towards the ship's stern."""
+        print("Initiating landing sequence")
+        self._is_landing = True
         self._is_entering_orbit = False
         self._is_in_orbit = False
-        self._is_exiting_orbit = True
+        self._is_exiting_orbit = False
+        self._goal = None  # Clear any existing goal
+        # Calculate the approach point behind the ship
+        landing_distance = 5.0  # Distance behind the ship to start approach
+        back_direction = Vector2(-math.cos(ship_angle), -math.sin(ship_angle))
+        self._landing_approach_point = ship_position + back_direction * landing_distance
+
+    def _perform_landing(self, dt, ship_position, ship_angle):
+        """Perform the landing procedure onto the aircraft carrier."""
+        if self._landing_approach_point:
+            # Fly towards the landing approach point
+            to_approach = self._landing_approach_point - self._position
+            distance = to_approach.length()
+            desired_angle = math.atan2(to_approach.y, to_approach.x)
+            # Gradually adjust angle towards desired angle
+            self._angle = self._adjust_angle_towards(self._angle, desired_angle, self._max_angular_speed, dt)
+            direction = Vector2(math.cos(self._angle), math.sin(self._angle))
+            # Maintain a minimum speed
+            speed = max(self._max_speed * 0.5, Params.Aircraft.MIN_SPEED)
+            move_vector = direction * speed * dt
+            self._position += move_vector
+            framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
+
+            if distance <= 1.0:
+                # Start final approach to land
+                self._landing_approach_point = None
+        else:
+            # Smooth transition to align with ship's angle while approaching
+            to_ship = ship_position - self._position
+            distance_to_ship = to_ship.length()
+            # Ensure minimum speed
+            approach_speed = max(self._max_speed * 0.5, Params.Aircraft.MIN_SPEED)
+            # Continuously update desired angle to align with the moving ship
+            desired_angle_to_ship = math.atan2(to_ship.y, to_ship.x)
+            # Blend the aircraft's current angle towards the ship's angle
+            blend_factor = 0.1  # Small value for smooth transition
+            desired_angle = self._interpolate_angles(desired_angle_to_ship, ship_angle, blend_factor)
+            self._angle = self._adjust_angle_towards(self._angle, desired_angle, self._max_angular_speed, dt)
+            direction = Vector2(math.cos(self._angle), math.sin(self._angle))
+            move_vector = direction * approach_speed * dt
+            self._position += move_vector
+            # Place the aircraft model at the new position and angle
+            framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
+
+            if distance_to_ship <= 0.1:
+                # Complete landing
+                print("Landing complete")
+                # Snap the aircraft to the ship's position and angle
+                self._position = Vector2(ship_position.x, ship_position.y)
+                self._angle = ship_angle
+                framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
+                self._is_airborne = False
+                self._is_refueling = True
+                self._refuel_time = 0.0
+                self._is_landing = False
+                self.deinit()
 
     def _normalize_angle(self, angle):
+        """Normalize angle to be within [-pi, pi]."""
         while angle > math.pi:
             angle -= 2 * math.pi
         while angle < -math.pi:
@@ -149,6 +214,13 @@ class Aircraft:
             return target_angle
         else:
             return current_angle + max_angle_change * (1 if angle_diff > 0 else -1)
+
+    def _interpolate_angles(self, angle1, angle2, t):
+        """Interpolate between two angles."""
+        angle1 = self._normalize_angle(angle1)
+        angle2 = self._normalize_angle(angle2)
+        diff = self._normalize_angle(angle2 - angle1)
+        return self._normalize_angle(angle1 + diff * t)
 
     def _fly_towards_goal(self, dt):
         """Handle the flight behavior towards the goal, including orbiting."""
@@ -166,17 +238,14 @@ class Aircraft:
 
                 # Move in the direction of the current angle
                 direction = Vector2(math.cos(self._angle), math.sin(self._angle))
-                move_vector = direction * self._max_speed * dt
+                speed = max(self._max_speed, Params.Aircraft.MIN_SPEED)
+                move_vector = direction * speed * dt
                 self._position += move_vector
 
-                # Check if the aircraft has reached the goal (ship)
-                if distance <= 0.1:
-                    self._is_airborne = False
-                    self._is_refueling = True
-                    self._refuel_time = 0.0
-
-                    framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
-                    self.deinit()
+                # Check if the aircraft has reached the goal
+                if distance <= 0.5:
+                    self._is_exiting_orbit = False
+                    self._goal = None
                 else:
                     framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
             else:
@@ -206,7 +275,7 @@ class Aircraft:
                     self._position += move_vector
 
                     # Check if the aircraft has reached the orbit entry point
-                    if to_entry_point.length() <= 0.1:
+                    if to_entry_point.length() <= 0.5:
                         self._is_entering_orbit = False
                         self._is_in_orbit = True
                 elif self._is_in_orbit:
@@ -241,9 +310,9 @@ class Aircraft:
 
     def deinit(self):
         """Deinitialize the aircraft's model."""
-        assert self._model
-        framework.destroyModel(self._model)
-        self._model = None
+        if self._model:
+            framework.destroyModel(self._model)
+            self._model = None
 
 #-------------------------------------------------------
 #   AircraftManager Class
@@ -256,24 +325,24 @@ class AircraftManager:
         self._next_aircraft_index = 0
         self._ship = ship
 
-    def update(self, dt):
+    def update(self, dt, ship_position, ship_angle):
         """Update all aircraft."""
-        current_ship_position = self._ship._position
         for aircraft in self._aircrafts:
-            aircraft.update(dt, current_ship_position)
+            aircraft.update(dt, ship_position, ship_angle)
 
     def take_off_next_aircraft(self):
         """Initiate takeoff for the next available aircraft."""
         aircraft = self._aircrafts[self._next_aircraft_index]
-        if not aircraft._is_airborne:
+        if not aircraft._is_airborne and not aircraft._is_refueling:
             print("Aircraft taking off from position", self._ship._position)
             aircraft.take_off(self._ship._position, self._ship._angle)  # Pass ship's angle
             self._next_aircraft_index = (self._next_aircraft_index + 1) % len(self._aircrafts)
 
     def set_goal_for_airborne(self, goal):
-        """Set a new goal for all aircraft."""
+        """Set a new goal for all airborne aircraft."""
         for aircraft in self._aircrafts:
-            aircraft.set_goal(goal)
+            if aircraft._is_airborne and not aircraft._is_landing:
+                aircraft.set_goal(goal)
 
 #-------------------------------------------------------
 #   Ship Class
@@ -304,9 +373,9 @@ class Ship:
 
     def deinit(self):
         """Deinitialize the ship's model."""
-        assert self._model
-        framework.destroyModel(self._model)
-        self._model = None
+        if self._model:
+            framework.destroyModel(self._model)
+            self._model = None
 
     def update(self, dt):
         """Update the ship's state and handle input."""
@@ -318,18 +387,20 @@ class Ship:
         elif self._input[framework.Keys.BACKWARD]:
             linearSpeed = -Params.Ship.LINEAR_SPEED
 
-        if self._input[framework.Keys.LEFT] and linearSpeed != 0.0:
+        if self._input[framework.Keys.LEFT]:
             angularSpeed = Params.Ship.ANGULAR_SPEED
-        elif self._input[framework.Keys.RIGHT] and linearSpeed != 0.0:
+        elif self._input[framework.Keys.RIGHT]:
             angularSpeed = -Params.Ship.ANGULAR_SPEED
 
-        # Update position and angle
-        self._angle = self._angle + angularSpeed * dt
-        self._position = self._position + Vector2(math.cos(self._angle), math.sin(self._angle)) * linearSpeed * dt
+        # Update angle
+        self._angle += angularSpeed * dt
+        # Update position
+        direction = Vector2(math.cos(self._angle), math.sin(self._angle))
+        self._position += direction * linearSpeed * dt
         framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
 
         # Update aircraft manager
-        self._aircraft_manager.update(dt)
+        self._aircraft_manager.update(dt, self._position, self._angle)
 
     def keyPressed(self, key):
         """Handle key press events."""
