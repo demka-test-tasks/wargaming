@@ -74,6 +74,7 @@ class Aircraft:
         self._is_refueling = False
         self._is_entering_orbit = False  # State for entering orbit
         self._is_in_orbit = False        # State when in orbit
+        self._is_exiting_orbit = False   # State for exiting orbit
 
     def take_off(self, ship_position, ship_angle):
         """Initiate the takeoff sequence from the ship."""
@@ -107,16 +108,19 @@ class Aircraft:
                 # Normal flight behavior
                 self._flight_time += dt
                 if self._flight_time >= Params.Aircraft.FLIGHT_DURATION:
-                    self._land(ship_position, dt)
+                    # Flight duration is over, start landing sequence
+                    self._is_exiting_orbit = True
+                    self._goal = ship_position  # Set goal to ship for landing
+                    self._is_entering_orbit = False
+                    self._is_in_orbit = False
+                if self._goal:
+                    self._fly_towards_goal(dt)
                 else:
-                    if self._goal:
-                        self._fly_towards_goal(dt)
-                    else:
-                        # Continue moving forward
-                        direction = Vector2(math.cos(self._angle), math.sin(self._angle))
-                        move_vector = direction * self._speed * dt
-                        self._position += move_vector
-                        framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
+                    # Continue moving forward
+                    direction = Vector2(math.cos(self._angle), math.sin(self._angle))
+                    move_vector = direction * self._speed * dt
+                    self._position += move_vector
+                    framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
         if self._is_refueling:
             self._refuel_time += dt
             if self._refuel_time >= Params.Aircraft.REFUEL_DURATION:
@@ -128,26 +132,7 @@ class Aircraft:
         self._goal = ship_position
         self._is_entering_orbit = False
         self._is_in_orbit = False
-
-        distance_to_ship = self._position.distance_to(ship_position)
-
-        if distance_to_ship >= 0.1:
-            direction = Vector2(ship_position.x - self._position.x, ship_position.y - self._position.y)
-            distance = direction.length()
-
-            direction = direction * (1.0 / distance)
-            move_vector = direction * self._speed * dt
-            self._position += move_vector
-            self._angle = math.atan2(direction.y, direction.x)
-
-            framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
-        else:
-            self._is_airborne = False
-            self._is_refueling = True
-            self._refuel_time = 0.0
-
-            framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
-            self.deinit()
+        self._is_exiting_orbit = True
 
     def _normalize_angle(self, angle):
         while angle > math.pi:
@@ -174,63 +159,85 @@ class Aircraft:
             to_goal = self._goal - self._position
             distance = to_goal.length()
 
-            if not self._is_entering_orbit and not self._is_in_orbit and distance <= approach_radius:
-                self._is_entering_orbit = True  # Start entering orbit
-
-            if not self._is_entering_orbit and not self._is_in_orbit:
-                # Fly straight towards the goal
+            if self._is_exiting_orbit:
+                # Smoothly exit orbit and approach the goal
                 desired_angle = math.atan2(to_goal.y, to_goal.x)
                 self._angle = self._adjust_angle_towards(self._angle, desired_angle, self._max_angular_speed, dt)
-
-                direction = Vector2(math.cos(self._angle), math.sin(self._angle))
-                move_vector = direction * self._max_speed * dt
-                self._position += move_vector
-            elif self._is_entering_orbit:
-                # Smoothly enter orbit
-                angle_to_goal = math.atan2(to_goal.y, to_goal.x)
-                orbit_entry_angle = angle_to_goal + math.pi / 2  # Adjust for tangential entry
-                orbit_entry_point = self._goal + Vector2(math.cos(orbit_entry_angle), math.sin(orbit_entry_angle)) * orbit_radius
-
-                to_entry_point = orbit_entry_point - self._position
-                desired_angle = math.atan2(to_entry_point.y, to_entry_point.x)
-                self._angle = self._adjust_angle_towards(self._angle, desired_angle, self._max_angular_speed, dt)
-
-                direction = Vector2(math.cos(self._angle), math.sin(self._angle))
-                move_vector = direction * self._max_speed * dt
-                self._position += move_vector
-
-                # Check if the aircraft has reached the orbit entry point
-                if to_entry_point.length() <= 0.1:
-                    self._is_entering_orbit = False
-                    self._is_in_orbit = True
-            elif self._is_in_orbit:
-                # Orbit around the goal
-                angle_to_aircraft = math.atan2(self._position.y - self._goal.y, self._position.x - self._goal.x)
-
-                # Tangential direction for orbit
-                orbit_direction = angle_to_aircraft + math.pi / 2  # Use -math.pi / 2 for opposite direction
-
-                self._angle = self._adjust_angle_towards(self._angle, orbit_direction, self._max_angular_speed, dt)
 
                 # Move in the direction of the current angle
                 direction = Vector2(math.cos(self._angle), math.sin(self._angle))
                 move_vector = direction * self._max_speed * dt
                 self._position += move_vector
 
-                # Maintain constant orbit radius
-                to_aircraft = self._position - self._goal
-                current_distance = to_aircraft.length()
-                if abs(current_distance - orbit_radius) > 0.01:
-                    to_aircraft = to_aircraft * (orbit_radius / current_distance)
-                    self._position = self._goal + to_aircraft
+                # Check if the aircraft has reached the goal (ship)
+                if distance <= 0.1:
+                    self._is_airborne = False
+                    self._is_refueling = True
+                    self._refuel_time = 0.0
 
-            framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
+                    framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
+                    self.deinit()
+                else:
+                    framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
+            else:
+                if not self._is_entering_orbit and not self._is_in_orbit and distance <= approach_radius:
+                    self._is_entering_orbit = True  # Start entering orbit
+
+                if not self._is_entering_orbit and not self._is_in_orbit:
+                    # Fly straight towards the goal
+                    desired_angle = math.atan2(to_goal.y, to_goal.x)
+                    self._angle = self._adjust_angle_towards(self._angle, desired_angle, self._max_angular_speed, dt)
+
+                    direction = Vector2(math.cos(self._angle), math.sin(self._angle))
+                    move_vector = direction * self._max_speed * dt
+                    self._position += move_vector
+                elif self._is_entering_orbit:
+                    # Smoothly enter orbit
+                    angle_to_goal = math.atan2(to_goal.y, to_goal.x)
+                    orbit_entry_angle = angle_to_goal + math.pi / 2  # Adjust for tangential entry
+                    orbit_entry_point = self._goal + Vector2(math.cos(orbit_entry_angle), math.sin(orbit_entry_angle)) * orbit_radius
+
+                    to_entry_point = orbit_entry_point - self._position
+                    desired_angle = math.atan2(to_entry_point.y, to_entry_point.x)
+                    self._angle = self._adjust_angle_towards(self._angle, desired_angle, self._max_angular_speed, dt)
+
+                    direction = Vector2(math.cos(self._angle), math.sin(self._angle))
+                    move_vector = direction * self._max_speed * dt
+                    self._position += move_vector
+
+                    # Check if the aircraft has reached the orbit entry point
+                    if to_entry_point.length() <= 0.1:
+                        self._is_entering_orbit = False
+                        self._is_in_orbit = True
+                elif self._is_in_orbit:
+                    # Orbit around the goal
+                    angle_to_aircraft = math.atan2(self._position.y - self._goal.y, self._position.x - self._goal.x)
+
+                    # Tangential direction for orbit
+                    orbit_direction = angle_to_aircraft + math.pi / 2  # Use -math.pi / 2 for opposite direction
+
+                    self._angle = self._adjust_angle_towards(self._angle, orbit_direction, self._max_angular_speed, dt)
+
+                    # Move in the direction of the current angle
+                    direction = Vector2(math.cos(self._angle), math.sin(self._angle))
+                    move_vector = direction * self._max_speed * dt
+                    self._position += move_vector
+
+                    # Maintain constant orbit radius
+                    to_aircraft = self._position - self._goal
+                    current_distance = to_aircraft.length()
+                    if abs(current_distance - orbit_radius) > 0.01:
+                        to_aircraft = to_aircraft * (orbit_radius / current_distance)
+                        self._position = self._goal + to_aircraft
+
+                framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
 
     def set_goal(self, goal):
         """Set a new goal for the aircraft."""
         self._goal = goal
         self._is_entering_orbit = False
         self._is_in_orbit = False
+        self._is_exiting_orbit = False  # Reset exiting orbit state
 
     def deinit(self):
         """Deinitialize the aircraft's model."""
