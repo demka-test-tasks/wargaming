@@ -17,8 +17,8 @@ class Params:
     class Aircraft:
         LINEAR_SPEED = 2.0
         ANGULAR_SPEED = 2.5
-        FLIGHT_DURATION = 30
-        REFUEL_DURATION = 30
+        FLIGHT_DURATION = 10
+        REFUEL_DURATION = 10
         ACCELERATION = 0.5
 
 #-------------------------------------------------------
