@@ -26,6 +26,7 @@ class Aircraft:
 	def take_off(self, ship_position):
 		print(u"Taking off")
 		if not self._is_airborne and not self._is_refueling:
+
 			self._position = Vector2(ship_position.x, ship_position.y)
 			self._angle = math.atan2(math.sin(self._angle), math.cos(self._angle))
 			self._model = framework.createAircraftModel()
@@ -33,6 +34,9 @@ class Aircraft:
 			self._flight_time = 0.0
 			self._speed = 0.0
 			framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
+
+			if self._goal:
+				self._fly_towards_goal(0)
 
 	def update(self, dt, ship_position):
 		if self._is_airborne:
@@ -48,8 +52,10 @@ class Aircraft:
 				move_vector = take_off_vector * self._speed * dt
 				self._position += move_vector
 
-				framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
-				self._fly_towards_goal(dt)
+				if self._goal:
+					self._fly_towards_goal(dt)
+				else:
+					framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
 
 		if self._is_refueling:
 			self._refuel_time += dt
@@ -62,12 +68,13 @@ class Aircraft:
 
 		distance_to_ship = self._position.distance_to(ship_position)
 
-		if distance_to_ship >= 0.5:
+		if distance_to_ship >= 0.1:
 			direction = Vector2(ship_position.x - self._position.x, ship_position.y - self._position.y)
 			distance = direction.length()
 
 			direction = direction * (1.0 / distance)
-			self._speed = max(0.1, self._speed - self._acceleration * dt)
+			#TODO Change speed due to landing process
+			#self._speed = max(0.1, self._speed - self._acceleration * dt)
 			move_vector = direction * self._speed * dt
 			self._position += move_vector
 			self._angle = math.atan2(direction.y, direction.x)
@@ -104,8 +111,8 @@ class Aircraft:
 			framework.placeModel(self._model, self._position.x, self._position.y, self._angle)
 
 	def set_goal(self, goal):
-		if self._is_airborne:
-			self._goal = goal
+		#if self._is_airborne:
+		self._goal = goal
 			
 
 	def deinit( self ):
