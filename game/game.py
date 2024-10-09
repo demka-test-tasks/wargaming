@@ -334,6 +334,7 @@ class Ship:
         self._position = Vector2()
         self._angle = 0.0
         self._aircraft_manager = AircraftManager(self)
+        self._aircraft_manager.set_goal_for_airborne(Vector2(0, 0)) # Goal by deafult
         self._input = {
             framework.Keys.FORWARD: False,
             framework.Keys.BACKWARD: False,
